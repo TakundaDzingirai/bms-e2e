@@ -1,0 +1,11 @@
+node_modules/
+.env
+test-results/
+playwright-report/
+blob-report/
+*.tsbuildinfo
+
+# committed on purpose (non-secret, local defaults / generated-but-tracked):
+#   .env.example        -> template
+#   openapi/openapi.json -> vendored spec (diff-guard baseline)
+#   src/api-types.ts     -> generated types (kept so the repo type-checks on clone)
