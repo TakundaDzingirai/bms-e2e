@@ -38,6 +38,18 @@ npm test                   # run the typed specs against the running app
 - `npm run sync:spec` — vendors `../bsms/openapi/openapi.json` into `openapi/` (override path with `BSMS_SPEC_PATH`). Reports when the contract changed (drift guard).
 - `npm run gen:types` — regenerates `src/api-types.ts` from the vendored spec (also runs automatically before `npm test`).
 
+## CI
+
+`.github/workflows/e2e.yml` runs the full suite automatically (push, PR, manual
+`workflow_dispatch`, and a daily schedule). Each run checks out `bsms`, starts a
+local Supabase stack (seeded), builds + starts the app against it, runs the typed
+specs, and uploads the **Playwright HTML report** as a downloadable artifact —
+so results and history live in this repo's **Actions** tab.
+
+> Cross-account checkout: `bsms` lives on a different GitHub account. If it is
+> private, add a repo-scoped PAT as the `BSMS_CHECKOUT_TOKEN` secret; a public
+> `bsms` needs no secret.
+
 ## Safety
 
 `src/env.ts` **refuses** to run if `APP_BASE_URL` or `SUPABASE_URL` is non-local,

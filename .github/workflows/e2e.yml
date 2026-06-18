@@ -1,0 +1,92 @@
+name: e2e
+
+# Runs the typed API suite against a freshly-built BSMS app backed by a local
+# Supabase stack (Postgres + Auth in Docker, seeded). Triggers:
+#   - push / PR to bms-e2e         (validate the suite + client)
+#   - manual (workflow_dispatch)   (run on demand)
+#   - daily schedule               (catch app/contract drift even with no commits)
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bms-e2e (this repo)
+        uses: actions/checkout@v4
+
+      - name: Checkout bsms (app under test)
+        uses: actions/checkout@v4
+        with:
+          repository: Taku-10/bsms
+          path: bsms
+          # bsms is on a different account. If it is PRIVATE, add a repo-scoped PAT
+          # as the secret BSMS_CHECKOUT_TOKEN. For a public bsms this is unused.
+          token: ${{ secrets.BSMS_CHECKOUT_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase (applies baseline migration + seed)
+        working-directory: bsms
+        run: supabase start
+
+      - name: Capture local Supabase env for the app build
+        working-directory: bsms
+        run: |
+          API_URL=$(supabase status -o env | grep '^API_URL=' | cut -d'"' -f2)
+          ANON=$(supabase status -o env | grep '^ANON_KEY=' | cut -d'"' -f2)
+          SERVICE=$(supabase status -o env | grep '^SERVICE_ROLE_KEY=' | cut -d'"' -f2)
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE"
+            echo "NEXT_PUBLIC_BUSINESS_TIMEZONE=America/Regina"
+            # expose the same values to the test runner (bms-e2e) too
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON"
+            echo "APP_BASE_URL=http://127.0.0.1:3000"
+            echo "E2E_ADMIN_EMAIL=admin"
+            echo "E2E_ADMIN_PASSWORD=Password123!"
+          } >> "$GITHUB_ENV"
+
+      - name: Build & start the bsms app against local Supabase
+        working-directory: bsms
+        run: |
+          npm install --no-audit --no-fund
+          npm run gen:openapi
+          npm run build
+          nohup npm run start > /tmp/bsms-app.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:3000/api/storefront/booking-status && break
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:3000/api/storefront/booking-status \
+            || { echo "App failed to start:"; tail -40 /tmp/bsms-app.log; exit 1; }
+
+      - name: Install bms-e2e deps, sync spec, generate types
+        run: |
+          npm install --no-audit --no-fund
+          BSMS_SPEC_PATH=bsms/openapi/openapi.json npm run sync:spec
+          npm run gen:types
+
+      - name: Run typed e2e suite
+        run: npm test
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
