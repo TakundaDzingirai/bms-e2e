@@ -16,16 +16,20 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
+      # Check the two repos out as SIBLINGS (not nested) so Next doesn't see two
+      # lockfiles and mis-infer its workspace root.
       - name: Checkout bms-e2e (this repo)
         uses: actions/checkout@v4
+        with:
+          path: e2e
 
       - name: Checkout bsms (app under test)
         uses: actions/checkout@v4
         with:
           repository: Taku-10/bsms
           path: bsms
-          # bsms is on a different account. If it is PRIVATE, add a repo-scoped PAT
-          # as the secret BSMS_CHECKOUT_TOKEN. For a public bsms this is unused.
+          # bsms is private and on another account → needs a repo-scoped PAT in
+          # the BSMS_CHECKOUT_TOKEN secret.
           token: ${{ secrets.BSMS_CHECKOUT_TOKEN || github.token }}
 
       - uses: actions/setup-node@v4
@@ -41,7 +45,7 @@ jobs:
         working-directory: bsms
         run: supabase start
 
-      - name: Capture local Supabase env for the app build
+      - name: Capture local Supabase env
         working-directory: bsms
         run: |
           API_URL=$(supabase status -o env | grep '^API_URL=' | cut -d'"' -f2)
@@ -52,7 +56,6 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE"
             echo "NEXT_PUBLIC_BUSINESS_TIMEZONE=America/Regina"
-            # expose the same values to the test runner (bms-e2e) too
             echo "SUPABASE_URL=$API_URL"
             echo "SUPABASE_ANON_KEY=$ANON"
             echo "APP_BASE_URL=http://127.0.0.1:3000"
@@ -60,33 +63,42 @@ jobs:
             echo "E2E_ADMIN_PASSWORD=Password123!"
           } >> "$GITHUB_ENV"
 
-      - name: Build & start the bsms app against local Supabase
+      - name: Build the bsms app (against local Supabase)
         working-directory: bsms
         run: |
           npm install --no-audit --no-fund
           npm run gen:openapi
           npm run build
+
+      - name: Start the app and wait for readiness
+        working-directory: bsms
+        run: |
           nohup npm run start > /tmp/bsms-app.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:3000/api/storefront/booking-status && break
+          echo "started app pid $!"
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/api/storefront/booking-status; then
+              echo "app ready after ~$((i * 2))s"; exit 0
+            fi
             sleep 2
           done
-          curl -fsS -o /dev/null http://127.0.0.1:3000/api/storefront/booking-status \
-            || { echo "App failed to start:"; tail -40 /tmp/bsms-app.log; exit 1; }
-
-      - name: Install bms-e2e deps, sync spec, generate types
-        run: |
-          npm install --no-audit --no-fund
-          BSMS_SPEC_PATH=bsms/openapi/openapi.json npm run sync:spec
-          npm run gen:types
+          echo "::error::App did not become ready on :3000"; cat /tmp/bsms-app.log; exit 1
 
       - name: Run typed e2e suite
-        run: npm test
+        working-directory: e2e
+        run: |
+          npm install --no-audit --no-fund
+          npm run sync:spec          # default path ../bsms/openapi/openapi.json (siblings)
+          npm run gen:types
+          npm test
+
+      - name: Show app log
+        if: always()
+        run: cat /tmp/bsms-app.log || true
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: playwright-report/
+          path: e2e/playwright-report/
           retention-days: 14
