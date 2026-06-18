@@ -2,6 +2,31 @@ import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./api-types";
 import { config } from "./env";
 
+/** Set E2E_DEBUG=1 to log every request's method/URL/status/body to the console
+ * (captured per-test in the Playwright HTML report). */
+const DEBUG = process.env.E2E_DEBUG === "1";
+
+function truncate(text: string, max = 600): string {
+  return text.length > max ? `${text.slice(0, max)}… (${text.length} bytes)` : text;
+}
+
+const loggingMiddleware: Middleware = {
+  onRequest({ request }) {
+    console.log(`→ ${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`);
+    return request;
+  },
+  async onResponse({ request, response }) {
+    let body = "";
+    try {
+      body = await response.clone().text();
+    } catch {
+      body = "<unreadable body>";
+    }
+    console.log(`← ${response.status} ${request.method} ${new URL(request.url).pathname} ${truncate(body)}`);
+    return response;
+  },
+};
+
 /**
  * A typed BSMS API client (openapi-fetch over the generated `paths`).
  *
@@ -20,6 +45,8 @@ export function makeClient(token?: string) {
     };
     client.use(authMiddleware);
   }
+
+  if (DEBUG) client.use(loggingMiddleware);
 
   return client;
 }
