@@ -19,6 +19,38 @@ test.describe("Appointments & slots", () => {
     expect(data?.slot).toBeTruthy();
   });
 
+  test("appointment-slots: a created slot is actually returned by GET (data round-trips, not just [])", async () => {
+    const client = makeClient();
+    const date = "2027-03-15"; // far-future + POST upserts on (date, time), so re-runs are idempotent
+
+    const create = await client.POST("/api/admin/appointment-slots", {
+      body: { date, startTime: "11:00", durationMinutes: 60, maxCapacity: 3 },
+    });
+    expect(create.response.status).toBe(200);
+
+    const { data, response } = await client.GET("/api/admin/appointment-slots", {
+      params: { query: { from: "2027-03-14", to: "2027-03-16" } },
+    });
+    expect(response.status).toBe(200);
+    const slots = data?.slots ?? [];
+    // Proves the read path returns real rows — an empty [] here would fail.
+    expect(slots.length).toBeGreaterThan(0);
+    // The slot we created is present (allow a UTC-neighbor date due to TZ storage).
+    const dates = slots.map((s) => s.appointment_date);
+    expect(dates.some((d) => ["2027-03-14", "2027-03-15", "2027-03-16"].includes(d))).toBe(true);
+    // And its capacity round-tripped.
+    expect(slots.some((s) => s.max_capacity === 3)).toBe(true);
+  });
+
+  // SECURITY GAP (auth-sweep WIP): this route should require auth but currently
+  // returns 200 to ANYONE. Marked test.fail so it is GREEN now (it correctly
+  // fails the 401 assertion) and turns RED the moment ensureAuth is added —
+  // alerting us to delete `.fail` and keep the real 401 assertion.
+  test.fail("appointment-slots GET: SHOULD reject unauthenticated (currently does not)", async () => {
+    const { response } = await makeClient().GET("/api/admin/appointment-slots");
+    expect(response.status).toBe(401);
+  });
+
   test("appointments PATCH: 401 without a token", async () => {
     const { response } = await makeClient().PATCH("/api/admin/appointments/{bookingId}", {
       params: { path: { bookingId: NIL_UUID } },
