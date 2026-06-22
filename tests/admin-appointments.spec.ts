@@ -4,15 +4,18 @@ import { getAccessToken } from "../src/auth";
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
+// Auth is now ENFORCED: appointment-slots GET/POST, book-appointment POST = staff.
 test.describe("Appointments & slots", () => {
-  test("appointment-slots GET: 200 typed slots[] (no auth yet)", async () => {
-    const { data, response } = await makeClient().GET("/api/admin/appointment-slots");
+  test("appointment-slots GET: 200 typed slots[] (admin)", async () => {
+    const client = makeClient(await getAccessToken());
+    const { data, response } = await client.GET("/api/admin/appointment-slots");
     expect(response.status).toBe(200);
     expect(Array.isArray(data?.slots)).toBe(true);
   });
 
-  test("appointment-slots POST: 200 upserts a slot (no auth yet)", async () => {
-    const { data, response } = await makeClient().POST("/api/admin/appointment-slots", {
+  test("appointment-slots POST: 200 upserts a slot (admin)", async () => {
+    const client = makeClient(await getAccessToken());
+    const { data, response } = await client.POST("/api/admin/appointment-slots", {
       body: { date: "2026-09-01", startTime: "10:00", durationMinutes: 90, maxCapacity: 2 },
     });
     expect(response.status).toBe(200);
@@ -20,7 +23,7 @@ test.describe("Appointments & slots", () => {
   });
 
   test("appointment-slots: a created slot is actually returned by GET (data round-trips, not just [])", async () => {
-    const client = makeClient();
+    const client = makeClient(await getAccessToken());
     const date = "2027-03-15"; // far-future + POST upserts on (date, time), so re-runs are idempotent
 
     const create = await client.POST("/api/admin/appointment-slots", {
@@ -42,11 +45,8 @@ test.describe("Appointments & slots", () => {
     expect(slots.some((s) => s.max_capacity === 3)).toBe(true);
   });
 
-  // SECURITY GAP (auth-sweep WIP): this route should require auth but currently
-  // returns 200 to ANYONE. Marked test.fail so it is GREEN now (it correctly
-  // fails the 401 assertion) and turns RED the moment ensureAuth is added —
-  // alerting us to delete `.fail` and keep the real 401 assertion.
-  test.fail("appointment-slots GET: SHOULD reject unauthenticated (currently does not)", async () => {
+  // Auth is now enforced: this staff route rejects anonymous callers.
+  test("appointment-slots GET: 401 without a token", async () => {
     const { response } = await makeClient().GET("/api/admin/appointment-slots");
     expect(response.status).toBe(401);
   });
@@ -71,8 +71,9 @@ test.describe("Appointments & slots", () => {
     expect([404, 500]).toContain(response.status);
   });
 
-  test("book-appointment: 400 on missing required fields (no auth yet)", async () => {
-    const { error, response } = await makeClient().POST("/api/admin/book-appointment", { body: {} as never });
+  test("book-appointment: 400 on missing required fields (admin)", async () => {
+    const client = makeClient(await getAccessToken());
+    const { error, response } = await client.POST("/api/admin/book-appointment", { body: {} as never });
     expect(response.status).toBe(400);
     expect(error?.error).toBeTruthy();
   });
