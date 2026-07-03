@@ -45,12 +45,42 @@ test.describe("Dashboard, settings & analytics", () => {
     expect(Array.isArray(data?.items)).toBe(true);
   });
 
-  test("attention-items: 403 for an employee creating one (admin only)", async () => {
+  test("attention-items: 200 for an employee creating one (staff may create)", async () => {
     const client = makeClient(await getAccessToken("employee", "Password123!"));
-    const { response } = await client.POST("/api/admin/dashboard/attention-items", {
-      body: { content: "should be rejected" },
+    const { data, response } = await client.POST("/api/admin/dashboard/attention-items", {
+      body: { content: "created by employee (e2e)" },
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(typeof data?.item.id).toBe("string");
+
+    // Clean up as admin (delete stays admin-only).
+    const adminClient = makeClient(await getAccessToken());
+    const { response: delRes } = await adminClient.DELETE("/api/admin/dashboard/attention-items/{id}", {
+      params: { path: { id: data!.item.id } },
+    });
+    expect(delRes.status).toBe(200);
+  });
+
+  test("attention-items: 403 for an employee deleting one (delete stays admin only)", async () => {
+    // Admin creates a fixture item…
+    const adminClient = makeClient(await getAccessToken());
+    const { data: created } = await adminClient.POST("/api/admin/dashboard/attention-items", {
+      body: { content: "delete-guard fixture (e2e)" },
+    });
+    const id = created!.item.id;
+
+    // …employee must not be able to delete it…
+    const employeeClient = makeClient(await getAccessToken("employee", "Password123!"));
+    const { response: empDel } = await employeeClient.DELETE("/api/admin/dashboard/attention-items/{id}", {
+      params: { path: { id } },
+    });
+    expect(empDel.status).toBe(403);
+
+    // …then admin cleans up.
+    const { response: delRes } = await adminClient.DELETE("/api/admin/dashboard/attention-items/{id}", {
+      params: { path: { id } },
+    });
+    expect(delRes.status).toBe(200);
   });
 
   test("daily-notes: 200 typed note for a date with a token", async () => {

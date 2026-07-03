@@ -21,6 +21,13 @@ export interface RouteProbe {
   /** Path + querystring to GET, e.g. "/api/admin/customers?page=1&pageSize=1". */
   path: string;
   guard: Guard;
+  /**
+   * Expected employee status when it differs from the guard default
+   * (200 staff / 403 admin). Used for staff detail probes hit with a
+   * placeholder id: a 404 proves the request got past the guard (guard
+   * rejections are 401/403) even though the record doesn't exist.
+   */
+  employeeStatus?: number;
 }
 
 async function status(
@@ -40,13 +47,14 @@ export async function expectAnonRejected(request: APIRequestContext, path: strin
   expect(await status(request, path)).toBe(401);
 }
 
-/** employee GET → 200 for staff routes, 403 for admin-only routes. */
+/** employee GET → 200 for staff routes, 403 for admin-only routes (or a per-probe override). */
 export async function expectEmployee(
   request: APIRequestContext,
   path: string,
   guard: Guard,
-  employeeToken: string
+  employeeToken: string,
+  employeeStatus?: number
 ) {
   const got = await status(request, path, employeeToken);
-  expect(got).toBe(guard === "staff" ? 200 : 403);
+  expect(got).toBe(employeeStatus ?? (guard === "staff" ? 200 : 403));
 }

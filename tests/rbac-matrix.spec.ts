@@ -35,8 +35,14 @@ const ROUTES: RouteProbe[] = [
   { name: "pos consignment-items", path: "/api/admin/pos/consignment-items", guard: "staff" },
   { name: "pos size-chart", path: "/api/admin/pos/size-chart", guard: "staff" },
 
+  // Customer detail GET is staff since bsms fbbef7e (customers page is
+  // employee-visible; PATCH/DELETE stay ensureAdmin), now also recorded in
+  // bsms documents/rbac-intent-matrix.md. The probe uses a placeholder id, so
+  // an employee that passes the guard gets 404 (record not found) — which is
+  // the proof the guard admitted them (guard rejections are 401/403).
+  { name: "customer detail", path: `/api/admin/customers/${NIL_UUID}`, guard: "staff", employeeStatus: 404 },
+
   // --- admin-only (ensureAdmin) ---
-  { name: "customer detail", path: `/api/admin/customers/${NIL_UUID}`, guard: "admin" },
   // DIVERGENCE from the stated RBAC contract: the contract lists "employees list
   // & [id]" as admin-only, but the live app guards GET /api/admin/employees with
   // ensureAuth (STAFF). The handler comment is explicit: "Staff (admin or
@@ -65,10 +71,10 @@ test.describe("RBAC matrix", () => {
       await expectAnonRejected(request, route.path);
     });
 
-    test(`${route.name} (${route.guard}): employee → ${route.guard === "staff" ? 200 : 403}`, async ({
+    test(`${route.name} (${route.guard}): employee → ${route.employeeStatus ?? (route.guard === "staff" ? 200 : 403)}`, async ({
       request,
     }) => {
-      await expectEmployee(request, route.path, route.guard, employeeToken);
+      await expectEmployee(request, route.path, route.guard, employeeToken, route.employeeStatus);
     });
   }
 });
