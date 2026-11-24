@@ -35,6 +35,13 @@ const ROUTES: RouteProbe[] = [
   { name: "pos consignment-items", path: "/api/admin/pos/consignment-items", guard: "staff" },
   { name: "pos size-chart", path: "/api/admin/pos/size-chart", guard: "staff" },
 
+  // Purchasing is staff since bsms PR #54 (9c675c4): employees create and
+  // update purchase orders, and add the cost to the $0 lines a POS special
+  // order drafts, so every purchasing route is ensureAuth.
+  { name: "purchasing list", path: "/api/admin/purchasing?page=1&limit=1", guard: "staff" },
+  { name: "purchasing company", path: "/api/admin/purchasing/company", guard: "staff" },
+  { name: "purchasing products", path: `/api/admin/purchasing/products?vendor_id=${NIL_UUID}`, guard: "staff" },
+
   // Customer detail GET is staff since bsms fbbef7e (customers page is
   // employee-visible; PATCH/DELETE stay ensureAdmin), now also recorded in
   // bsms documents/rbac-intent-matrix.md. The probe uses a placeholder id, so
@@ -53,9 +60,6 @@ const ROUTES: RouteProbe[] = [
   { name: "employees list", path: "/api/admin/employees?page=1&pageSize=1", guard: "staff" },
   { name: "employees shifts", path: "/api/admin/employees/shifts?date_from=2026-01-01", guard: "admin" },
   { name: "employees assignments", path: "/api/admin/employees/assignments", guard: "admin" },
-  { name: "purchasing list", path: "/api/admin/purchasing?page=1&limit=1", guard: "admin" },
-  { name: "purchasing company", path: "/api/admin/purchasing/company", guard: "admin" },
-  { name: "purchasing products", path: `/api/admin/purchasing/products?vendor_id=${NIL_UUID}`, guard: "admin" },
   { name: "sales", path: "/api/admin/sales?page=1&pageSize=1", guard: "admin" },
 ];
 
